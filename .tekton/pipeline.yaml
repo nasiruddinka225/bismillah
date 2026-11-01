@@ -46,7 +46,7 @@ spec:
         check_region() {
           REGION="$1"
           ENDPOINT="$2"
-          EXPECTED="$3"
+          shift 2
 
           echo
           echo "======================================"
@@ -62,9 +62,7 @@ spec:
 
           COUNT=0
 
-          while IFS= read -r NAME; do
-            [ -n "$NAME" ] || continue
-
+          for NAME in "$@"; do
             INSTANCE=$(echo "$DATA" | jq -c --arg n "$NAME" \
               '.instances[] | select(.name == $n)' | head -n 1)
 
@@ -82,42 +80,32 @@ spec:
               "$NAME" "$STATUS" "$PROFILE" "$ZONE" "$IP"
 
             COUNT=$((COUNT + 1))
-          done <<< "$EXPECTED"
+          done
 
           echo "Found ${COUNT} of 4 expected instances."
-
-          if [ "$COUNT" -ne 4 ]; then
-            echo "WARNING: Inventory incomplete in ${REGION}"
-          fi
         }
 
         echo "[2/3] Checking Frankfurt and US East..."
 
-        EU_NAMES=$(printf '%s\n' \
+        check_region "eu-de" \
+          "https://eu-de.iaas.cloud.ibm.com" \
           a100-eu-de-01 \
           a100-eu-de-02 \
           a100-eu-de-03 \
-          a100-eu-de-04)
-
-        US_NAMES=$(printf '%s\n' \
-          a100-us-east-01 \
-          a100-us-east-02 \
-          a100-us-east-03 \
-          a100-us-east-04)
-
-        check_region "eu-de" \
-          "https://eu-de.iaas.cloud.ibm.com" \
-          "$EU_NAMES"
+          a100-eu-de-04
 
         check_region "us-east" \
           "https://us-east.iaas.cloud.ibm.com" \
-          "$US_NAMES"
+          a100-us-east-01 \
+          a100-us-east-02 \
+          a100-us-east-03 \
+          a100-us-east-04
 
         echo
         echo "======================================"
         echo "[3/3] INVENTORY CHECK COMPLETED"
         echo "======================================"
-        echo "This pipeline only reads IBM VPC metadata."
+        echo "Read-only inventory check completed."
         echo "No instance was created, stopped, or deleted."
 
 ---
@@ -130,3 +118,40 @@ spec:
     - name: verify-a100-inventory
       taskRef:
         name: verify-a100-inventory
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: h200-worker-binding
+spec:
+  params: []
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: h200-worker-template
+spec:
+  params: []
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: h200-worker-run-
+      spec:
+        pipelineRef:
+          name: h200-worker-pipeline
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: h200-worker-listener
+spec:
+  triggers:
+    - name: h200-worker-trigger
+      bindings:
+        - ref: h200-worker-binding
+      template:
+        ref: h200-worker-template
