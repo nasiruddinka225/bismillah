@@ -1,17 +1,132 @@
 apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: verify-a100-inventory
+spec:
+  steps:
+    - name: check-ibm-a100
+      image: icr.io/continuous-delivery/pipeline/pipeline-base-image:2.96
+      env:
+        - name: IBMCLOUD_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: secure-properties
+              key: tekton-h200-service
+      script: |
+        #!/usr/bin/env bash
+        set -Eeuo pipefail
+
+        echo "======================================"
+        echo " IBM CLOUD A100 INVENTORY CHECK"
+        echo "======================================"
+
+        command -v curl >/dev/null
+        command -v jq >/dev/null
+
+        if [ -z "${IBMCLOUD_API_KEY:-}" ]; then
+          echo "ERROR: IBM Cloud API key tidak ditemukan."
+          exit 1
+        fi
+
+        echo "[1/3] Request IAM token..."
+
+        TOKEN_JSON=$(curl -fsS \
+          --retry 3 \
+          --retry-delay 3 \
+          -X POST \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -H "Accept: application/json" \
+          --data-urlencode "grant_type=urn:ibm:params:oauth:grant-type:apikey" \
+          --data-urlencode "apikey=${IBMCLOUD_API_KEY}" \
+          "https://iam.cloud.ibm.com/identity/token")
+
+        TOKEN=$(echo "$TOKEN_JSON" | jq -er '.access_token')
+        echo "IAM authentication: OK"
+
+        check_region() {
+          REGION="$1"
+          ENDPOINT="$2"
+          EXPECTED="$3"
+
+          echo
+          echo "======================================"
+          echo " REGION: ${REGION}"
+          echo "======================================"
+
+          DATA=$(curl -fsS \
+            --retry 3 \
+            --retry-delay 3 \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/json" \
+            "${ENDPOINT}/v1/instances?version=2026-11-01&generation=2")
+
+          COUNT=0
+
+          while IFS= read -r NAME; do
+            [ -n "$NAME" ] || continue
+
+            INSTANCE=$(echo "$DATA" | jq -c --arg n "$NAME" \
+              '.instances[] | select(.name == $n)' | head -n 1)
+
+            if [ -z "$INSTANCE" ]; then
+              echo "MISSING: ${NAME}"
+              continue
+            fi
+
+            STATUS=$(echo "$INSTANCE" | jq -r '.status // "unknown"')
+            PROFILE=$(echo "$INSTANCE" | jq -r '.profile.name // "unknown"')
+            ZONE=$(echo "$INSTANCE" | jq -r '.zone.name // "unknown"')
+            IP=$(echo "$INSTANCE" | jq -r '.primary_network_interface.primary_ip.address // "unknown"')
+
+            printf "%-20s | %-10s | %-25s | %-10s | %s\n" \
+              "$NAME" "$STATUS" "$PROFILE" "$ZONE" "$IP"
+
+            COUNT=$((COUNT + 1))
+          done <<< "$EXPECTED"
+
+          echo "Found ${COUNT} of 4 expected instances."
+
+          if [ "$COUNT" -ne 4 ]; then
+            echo "WARNING: Inventory incomplete in ${REGION}"
+          fi
+        }
+
+        echo "[2/3] Checking Frankfurt and US East..."
+
+        EU_NAMES=$(printf '%s\n' \
+          a100-eu-de-01 \
+          a100-eu-de-02 \
+          a100-eu-de-03 \
+          a100-eu-de-04)
+
+        US_NAMES=$(printf '%s\n' \
+          a100-us-east-01 \
+          a100-us-east-02 \
+          a100-us-east-03 \
+          a100-us-east-04)
+
+        check_region "eu-de" \
+          "https://eu-de.iaas.cloud.ibm.com" \
+          "$EU_NAMES"
+
+        check_region "us-east" \
+          "https://us-east.iaas.cloud.ibm.com" \
+          "$US_NAMES"
+
+        echo
+        echo "======================================"
+        echo "[3/3] INVENTORY CHECK COMPLETED"
+        echo "======================================"
+        echo "This pipeline only reads IBM VPC metadata."
+        echo "No instance was created, stopped, or deleted."
+
+---
+apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
   name: h200-worker-pipeline
 spec:
   tasks:
-    - name: hello
-      taskSpec:
-        steps:
-          - name: test
-            image: alpine:3.20
-            script: |
-              #!/bin/sh
-              echo "IBM CLOUD TEKTON PIPELINE READY!"
-              echo "Worker: IBM Managed Workers Tokyo"
-              echo "Preparing H200 worker deployment..."
-              echo "Pipeline test completed successfully!"
+    - name: verify-a100-inventory
+      taskRef:
+        name: verify-a100-inventory
