@@ -4,59 +4,41 @@ metadata:
   name: h200-worker-pipeline
 spec:
   tasks:
-    - name: hello
+    - name: verify-ibm-access
       taskSpec:
         steps:
-          - name: test
-            image: alpine:3.20
+          - name: authenticate
+            image: icr.io/continuous-delivery/pipeline/pipeline-base-image:2.69
+            env:
+              - name: IBM_CLOUD_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: secure-properties
+                    key: IBM_CLOUD_API_KEY
             script: |
-              #!/bin/sh
-              echo "=================================="
-              echo "IBM CLOUD TEKTON PIPELINE READY"
-              echo "=================================="
-              echo "Worker: IBM Managed Workers Tokyo"
-              echo "Preparing H200 worker deployment..."
-              echo "Pipeline test completed successfully!"
+              #!/bin/bash
+              set -euo pipefail
 
----
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerBinding
-metadata:
-  name: h200-worker-binding
-spec:
-  params:
-    - name: run-message
-      value: "manual-test"
+              if [ -z "${IBM_CLOUD_API_KEY:-}" ]; then
+                echo "ERROR: IBM_CLOUD_API_KEY tidak ditemukan"
+                exit 1
+              fi
 
----
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerTemplate
-metadata:
-  name: h200-worker-template
-spec:
-  params:
-    - name: run-message
-      default: "manual-test"
-  resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
-      kind: PipelineRun
-      metadata:
-        generateName: h200-worker-run-
-        annotations:
-          run-message: "$(tt.params.run-message)"
-      spec:
-        pipelineRef:
-          name: h200-worker-pipeline
+              echo "Meminta IAM token IBM Cloud..."
 
----
-apiVersion: triggers.tekton.dev/v1beta1
-kind: EventListener
-metadata:
-  name: h200-worker-listener
-spec:
-  triggers:
-    - name: manual-run
-      bindings:
-        - ref: h200-worker-binding
-      template:
-        ref: h200-worker-template
+              RESPONSE=$(curl -fsS \
+                -X POST "https://iam.cloud.ibm.com/identity/token" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                -H "Accept: application/json" \
+                --data-urlencode "grant_type=urn:ibm:params:oauth:grant-type:apikey" \
+                --data-urlencode "apikey=${IBM_CLOUD_API_KEY}")
+
+              TOKEN=$(echo "$RESPONSE" | jq -er '.access_token')
+
+              if [ -z "$TOKEN" ]; then
+                echo "ERROR: Gagal mendapatkan IAM token"
+                exit 1
+              fi
+
+              echo "BERHASIL: API key diterima dan IAM token berhasil diperoleh."
+              unset TOKEN RESPONSE IBM_CLOUD_API_KEY
