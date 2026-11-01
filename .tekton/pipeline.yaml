@@ -1,0 +1,15 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: h200-worker-pipeline
+spec:
+  tasks:
+    - name: hello
+      taskSpec:
+        steps:
+          - name: test
+            image: alpine:3.20
+            script: |
+              #!/bin/sh
+              echo "IBM Cloud Tekton Pipeline Ready!"
+              echo "Preparing H200 worker deployment..."
