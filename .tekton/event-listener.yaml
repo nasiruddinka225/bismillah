@@ -1,0 +1,10 @@
+apiVersion: tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: h200-worker-listener
+spec:
+  triggers:
+    - binding:
+        name: h200-worker-binding
+      template:
+        name: h200-worker-template
