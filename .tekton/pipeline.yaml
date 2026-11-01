@@ -11,5 +11,35 @@ spec:
             image: alpine:3.20
             script: |
               #!/bin/sh
-              echo "IBM Cloud Tekton Pipeline Ready!"
+              echo "=================================="
+              echo "IBM CLOUD TEKTON PIPELINE READY"
+              echo "=================================="
+              echo "Worker: IBM Managed Workers Tokyo"
               echo "Preparing H200 worker deployment..."
+              echo "Pipeline test completed successfully!"
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: h200-worker-template
+spec:
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: h200-worker-run-
+      spec:
+        pipelineRef:
+          name: h200-worker-pipeline
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: h200-worker-listener
+spec:
+  triggers:
+    - name: manual-run
+      template:
+        ref: h200-worker-template
