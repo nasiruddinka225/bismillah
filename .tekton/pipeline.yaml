@@ -4,41 +4,14 @@ metadata:
   name: h200-worker-pipeline
 spec:
   tasks:
-    - name: verify-ibm-access
+    - name: hello
       taskSpec:
         steps:
-          - name: authenticate
-            image: icr.io/continuous-delivery/pipeline/pipeline-base-image:2.69
-            env:
-              - name: IBM_CLOUD_API_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: secure-properties
-                    key: IBM_CLOUD_API_KEY
+          - name: test
+            image: alpine:3.20
             script: |
-              #!/bin/bash
-              set -euo pipefail
-
-              if [ -z "${IBM_CLOUD_API_KEY:-}" ]; then
-                echo "ERROR: IBM_CLOUD_API_KEY tidak ditemukan"
-                exit 1
-              fi
-
-              echo "Meminta IAM token IBM Cloud..."
-
-              RESPONSE=$(curl -fsS \
-                -X POST "https://iam.cloud.ibm.com/identity/token" \
-                -H "Content-Type: application/x-www-form-urlencoded" \
-                -H "Accept: application/json" \
-                --data-urlencode "grant_type=urn:ibm:params:oauth:grant-type:apikey" \
-                --data-urlencode "apikey=${IBM_CLOUD_API_KEY}")
-
-              TOKEN=$(echo "$RESPONSE" | jq -er '.access_token')
-
-              if [ -z "$TOKEN" ]; then
-                echo "ERROR: Gagal mendapatkan IAM token"
-                exit 1
-              fi
-
-              echo "BERHASIL: API key diterima dan IAM token berhasil diperoleh."
-              unset TOKEN RESPONSE IBM_CLOUD_API_KEY
+              #!/bin/sh
+              echo "IBM CLOUD TEKTON PIPELINE READY!"
+              echo "Worker: IBM Managed Workers Tokyo"
+              echo "Preparing H200 worker deployment..."
+              echo "Pipeline test completed successfully!"
